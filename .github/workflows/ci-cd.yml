@@ -8,6 +8,17 @@ on:
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
+# Required permissions for GitHub Pages deployment
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment, but don't cancel in-progress runs
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
 jobs:
   build-and-test:
     name: Build & Test
@@ -32,6 +43,13 @@ jobs:
       - name: Build application
         run: npm run build
 
+      - name: Upload build artifact for Pages
+        # Only upload artifact on push to main (not on PRs)
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+
   docker-build:
     name: Docker Build Validation
     runs-on: ubuntu-latest
@@ -53,35 +71,18 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # Uncomment and configure the deployment job below when ready to deploy
-  # deploy:
-  #   name: Deploy Application
-  #   runs-on: ubuntu-latest
-  #   needs: [build-and-test, docker-build]
-  #   if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-  #
-  #   steps:
-  #     - name: Checkout repository
-  #       uses: actions/checkout@v4
-  #
-  #     # Example 1: Deploy to GitHub Pages (Static website)
-  #     # - name: Deploy to GitHub Pages
-  #     #   uses: JamesIves/github-pages-deploy-action@v4
-  #     #   with:
-  #     #     folder: dist # The folder where build outputs are generated
-  #
-  #     # Example 2: Push Docker Image to Github Container Registry (GHCR)
-  #     # - name: Log in to GHCR
-  #     #   uses: docker/login-action@v3
-  #     #   with:
-  #     #     registry: ghcr.io
-  #     #     username: ${{ github.actor }}
-  #     #     password: ${{ secrets.GITHUB_TOKEN }}
-  #     #
-  #     # - name: Build and Push Docker Image
-  #     #   uses: docker/build-push-action@v6
-  #     #   with:
-  #     #     context: .
-  #     #     file: ./Dockerfile
-  #     #     push: true
-  #     #     tags: ghcr.io/${{ github.repository }}/ezviz-web-app:latest
+  deploy:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    # Only deploy on push to main branch, not on PRs
+    if: github.event_name != 'pull_request'
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
