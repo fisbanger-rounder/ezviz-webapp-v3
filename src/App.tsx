@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Camera, Play, Video, Key, Calendar, AlertCircle, Info, Grid, Square, PlayCircle, Menu, Download } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Camera, Play, Video, Key, Calendar, AlertCircle, Info, Grid, Square, PlayCircle, Menu, Download, Wifi, WifiOff, LogOut } from 'lucide-react';
 import { format } from 'date-fns';
 import { EZUIKitPlayer } from 'ezuikit-js';
 
@@ -9,6 +9,42 @@ declare global {
     EZUIKit: unknown;
   }
 }
+
+// ── LocalStorage helpers for persistent token (7-day TTL) ──────────────────
+const TOKEN_KEY = 'ezviz_access_token';
+const TOKEN_TS_KEY = 'ezviz_token_timestamp';
+const REGION_KEY = 'ezviz_region';
+const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function loadPersistedToken(): { token: string; region: string } {
+  try {
+    const token = localStorage.getItem(TOKEN_KEY) ?? '';
+    const ts = parseInt(localStorage.getItem(TOKEN_TS_KEY) ?? '0', 10);
+    const region = localStorage.getItem(REGION_KEY) ?? 'https://isgpopen.ezvizlife.com';
+    if (token && Date.now() - ts < TOKEN_TTL_MS) {
+      return { token, region };
+    }
+  } catch (_e) { /* localStorage not available */ }
+  return { token: '', region: 'https://isgpopen.ezvizlife.com' };
+}
+
+function persistToken(token: string, region: string) {
+  try {
+    localStorage.setItem(TOKEN_KEY, token);
+    localStorage.setItem(TOKEN_TS_KEY, String(Date.now()));
+    localStorage.setItem(REGION_KEY, region);
+  } catch (_e) { /* ignore */ }
+}
+
+function clearPersistedToken() {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(TOKEN_TS_KEY);
+    localStorage.removeItem(REGION_KEY);
+  } catch (_e) { /* ignore */ }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 interface Device {
   deviceSerial: string;
@@ -31,37 +67,48 @@ interface CameraPlayerProps {
   isActive: boolean;
   index: number;
   onStatusChange: (deviceSerial: string, channelNo: number, status: number) => void;
+  onStreamSettled: () => void;
 }
 
 const CameraPlayer: React.FC<CameraPlayerProps> = ({
-  device, accessToken, region, mode, recType, playbackTime, playbackEndTime, isActive, index, onStatusChange
+  device, accessToken, region, mode, recType, playbackTime, playbackEndTime,
+  isActive, index, onStatusChange, onStreamSettled,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<EZUIKitPlayer | null>(null);
+  const settledRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [localIsActive, setLocalIsActive] = useState(isActive);
   const playerId = `video-container-${device.deviceSerial}-${device.channelNo}`;
 
+  const settle = useCallback(() => {
+    if (!settledRef.current) {
+      settledRef.current = true;
+      onStreamSettled();
+    }
+  }, [onStreamSettled]);
+
   useEffect(() => {
     let timeoutId: ReturnType<typeof setTimeout>;
 
-    // Auto-play only if globally active AND device is online
     if (isActive) {
+      settledRef.current = false;
       if (device.status === 1) {
         timeoutId = setTimeout(() => {
           setLocalIsActive(true);
         }, index * 800);
       } else {
         setLocalIsActive(false);
+        settle();
       }
     } else {
       setLocalIsActive(false);
     }
 
     return () => clearTimeout(timeoutId);
-  }, [isActive, device.status, index]);
+  }, [isActive, device.status, index, settle]);
 
   useEffect(() => {
     if (localIsActive) {
@@ -71,7 +118,7 @@ const CameraPlayer: React.FC<CameraPlayerProps> = ({
     }
     return () => stopStream();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localIsActive, mode, playbackTime, playbackEndTime]); // Re-run if these change while active
+  }, [localIsActive, mode, playbackTime, playbackEndTime]);
 
   const startStream = () => {
     if (!accessToken) return;
@@ -84,7 +131,6 @@ const CameraPlayer: React.FC<CameraPlayerProps> = ({
     const domain = region === 'https://open.ys7.com' ? 'open.ys7.com' : 'open.ezviz.com';
     const recSuffix = recType === 'cloud' ? '.cloud.rec' : '.rec';
 
-    // Ensure time strings are exactly 14 characters (yyyyMMddHHmmss)
     const startFormatted = playbackTime.replace(/[-T:]/g, '').padEnd(14, '0');
     const endFormatted = playbackEndTime.replace(/[-T:]/g, '').padEnd(14, '0');
 
@@ -101,16 +147,17 @@ const CameraPlayer: React.FC<CameraPlayerProps> = ({
         width: '100%',
         height: '100%',
         autoplay: true,
-        staticPath: '/ezuikit_static',
+        staticPath: '/ezviz-webapp-v3/ezuikit_static',
         ...(region !== 'https://open.ys7.com' ? { env: { domain: region } } : {}),
         handleError: (err: unknown) => {
           console.error(`EZUIKit Error (${device.deviceSerial}):`, err);
-          setError("Device Offline");
+          setError('Device Offline');
           setIsLoading(false);
           setIsPlaying(false);
           if (device.status !== 0) {
             onStatusChange(device.deviceSerial, device.channelNo, 0);
           }
+          settle();
         },
         handleSuccess: () => {
           setIsPlaying(true);
@@ -119,12 +166,14 @@ const CameraPlayer: React.FC<CameraPlayerProps> = ({
           if (device.status !== 1) {
             onStatusChange(device.deviceSerial, device.channelNo, 1);
           }
+          settle();
         }
       });
     } catch (_err) {
-      setError("Init error");
+      setError('Init error');
       setIsLoading(false);
       setIsPlaying(false);
+      settle();
     }
   };
 
@@ -166,7 +215,7 @@ const CameraPlayer: React.FC<CameraPlayerProps> = ({
               alignItems: 'center',
               padding: 0
             }}
-            title={localIsActive ? "Stop Stream" : "Start Stream"}
+            title={localIsActive ? 'Stop Stream' : 'Start Stream'}
           >
             {localIsActive ? <Square size={16} fill="currentColor" /> : <PlayCircle size={18} />}
           </button>
@@ -201,17 +250,21 @@ const CameraPlayer: React.FC<CameraPlayerProps> = ({
   );
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+
 const App: React.FC = () => {
-  // Config State
+  // Config State — initialise from localStorage
+  const persisted = loadPersistedToken();
   const [appKey, setAppKey] = useState('');
   const [appSecret, setAppSecret] = useState('');
-  const [accessToken, setAccessToken] = useState('');
+  const [accessToken, setAccessToken] = useState(persisted.token);
+  const [tokenSaved, setTokenSaved] = useState(!!persisted.token);
 
   const [mode, setMode] = useState<'live' | 'rec'>('live');
   const [playbackTime, setPlaybackTime] = useState(format(new Date(), "yyyy-MM-dd'T'HH:mm:ss"));
   const [playbackEndTime, setPlaybackEndTime] = useState(format(new Date(), "yyyy-MM-dd'T'HH:mm:ss"));
   const [recType, setRecType] = useState<'local' | 'cloud'>('local');
-  const [region, setRegion] = useState('https://isgpopen.ezvizlife.com');
+  const [region, setRegion] = useState(persisted.region);
 
   // App State
   const [devices, setDevices] = useState<Device[]>([]);
@@ -227,6 +280,37 @@ const App: React.FC = () => {
   const [isSingleRecActive, setIsSingleRecActive] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
 
+  // Loading progress tracking
+  const [streamTotal, setStreamTotal] = useState(0);
+  const [streamSettled, setStreamSettled] = useState(0);
+
+  // Derived camera stats
+  const onlineCount = devices.filter(d => d.status === 1).length;
+  const offlineCount = devices.length - onlineCount;
+  const loadProgress = streamTotal > 0 ? Math.round((streamSettled / streamTotal) * 100) : 0;
+  const isStreamsLoading = isAllActive && streamTotal > 0 && streamSettled < streamTotal;
+
+  // Persist token whenever it changes
+  useEffect(() => {
+    if (accessToken) {
+      persistToken(accessToken, region);
+      setTokenSaved(true);
+    }
+  }, [accessToken, region]);
+
+  const handleClearToken = () => {
+    clearPersistedToken();
+    setAccessToken('');
+    setTokenSaved(false);
+    setDevices([]);
+    setIsAllActive(false);
+    setError(null);
+  };
+
+  const handleStreamSettled = useCallback(() => {
+    setStreamSettled(prev => prev + 1);
+  }, []);
+
   const updateDeviceStatus = (deviceSerial: string, channelNo: number, status: number) => {
     setDevices(prevDevices =>
       prevDevices.map(d =>
@@ -240,7 +324,7 @@ const App: React.FC = () => {
   // Fetch token if AppKey/Secret are provided
   const fetchToken = async () => {
     if (!appKey || !appSecret) {
-      setError("Please provide both AppKey and AppSecret");
+      setError('Please provide both AppKey and AppSecret');
       return;
     }
 
@@ -250,9 +334,7 @@ const App: React.FC = () => {
     try {
       const response = await fetch(`${region}/api/lapp/token/get`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: `appKey=${appKey}&appSecret=${appSecret}`,
       });
 
@@ -262,10 +344,10 @@ const App: React.FC = () => {
         setAccessToken(data.data.accessToken);
         setError(null);
       } else {
-        setError(data.msg || "Failed to fetch token");
+        setError(data.msg || 'Failed to fetch token');
       }
     } catch (_err) {
-      setError("Network error while fetching token");
+      setError('Network error while fetching token');
     } finally {
       setIsLoading(false);
     }
@@ -273,7 +355,7 @@ const App: React.FC = () => {
 
   const fetchDevices = async () => {
     if (!accessToken) {
-      setError("Access Token is required to fetch devices.");
+      setError('Access Token is required to fetch devices.');
       return;
     }
 
@@ -283,30 +365,33 @@ const App: React.FC = () => {
     try {
       const response = await fetch(`${region}/api/lapp/camera/list`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        // We fetch up to 50 devices
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: `accessToken=${accessToken}&pageStart=0&pageSize=50`,
       });
 
       const data = await response.json();
 
       if (data.code === '200') {
-        setDevices(data.data);
+        const fetchedDevices: Device[] = data.data;
+        setDevices(fetchedDevices);
         setError(null);
-        setIsAllActive(true); // Autoplay all online cameras when successfully fetched
+
+        // Set up progress tracking before activating streams
+        const onlineDevices = fetchedDevices.filter(d => d.status === 1).length;
+        setStreamTotal(onlineDevices);
+        setStreamSettled(0);
+        setIsAllActive(true);
       } else {
-        setError(data.msg || "Failed to fetch device list");
+        setError(data.msg || 'Failed to fetch device list');
       }
     } catch (_err) {
-      setError("Network error while fetching device list");
+      setError('Network error while fetching device list');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Background polling to update device status (Online/Offline) every 30 seconds
+  // Background polling to update device status every 30 seconds
   useEffect(() => {
     if (!accessToken || devices.length === 0) return;
 
@@ -314,9 +399,7 @@ const App: React.FC = () => {
       try {
         const response = await fetch(`${region}/api/lapp/camera/list`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: `accessToken=${accessToken}&pageStart=0&pageSize=50`,
         });
 
@@ -333,22 +416,26 @@ const App: React.FC = () => {
               }
               return prevDev;
             });
-
             return hasChanges ? updatedDevices : prevDevices;
           });
         }
       } catch (_err) {
-        console.error("Background polling failed");
+        console.error('Background polling failed');
       }
-    }, 30000); // 30 seconds interval
+    }, 30000);
 
     return () => clearInterval(intervalId);
   }, [accessToken, region, devices.length]);
 
   const toggleAllStreams = () => {
     if (devices.length === 0) {
-      setError("No devices available. Please fetch devices first.");
+      setError('No devices available. Please fetch devices first.');
       return;
+    }
+    if (!isAllActive) {
+      const onlineDevices = devices.filter(d => d.status === 1).length;
+      setStreamTotal(onlineDevices);
+      setStreamSettled(0);
     }
     setIsAllActive(!isAllActive);
   };
@@ -362,20 +449,17 @@ const App: React.FC = () => {
     try {
       const [deviceSerial, channelNo] = selectedRecDevice.split('-');
 
-      // Convert time to milliseconds for the API
       const startMs = new Date(playbackTime).getTime();
       const endMs = new Date(playbackEndTime).getTime();
 
       const response = await fetch(`${region}/api/lapp/video/by/time`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: `accessToken=${accessToken}&deviceSerial=${deviceSerial}&channelNo=${channelNo}&startTime=${startMs}&endTime=${endMs}&stopTime=${endMs}&type=${recType === 'cloud' ? 1 : 2}&recType=${recType === 'cloud' ? 1 : 2}`,
       });
 
       const data = await response.json();
-      console.log("Video search API response:", data);
+      console.log('Video search API response:', data);
 
       if (data.code === '200') {
         if (data.data && data.data.length > 0) {
@@ -383,16 +467,16 @@ const App: React.FC = () => {
           if (segment.downloadPath) {
             window.open(segment.downloadPath, '_blank');
           } else {
-            setError("No direct download link available. Note: Downloading SD Card recordings directly via Web is not supported by EZVIZ API. Please use EZVIZ Studio PC.");
+            setError('No direct download link available. Note: Downloading SD Card recordings directly via Web is not supported by EZVIZ API. Please use EZVIZ Studio PC.');
           }
         } else {
-          setError(`No video recordings found for the selected time range. Note: Direct download of SD Card recordings is restricted by EZVIZ API. Please use EZVIZ Studio PC.`);
+          setError('No video recordings found for the selected time range. Note: Direct download of SD Card recordings is restricted by EZVIZ API. Please use EZVIZ Studio PC.');
         }
       } else {
-        setError(data.msg || "Failed to search for video recordings");
+        setError(data.msg || 'Failed to search for video recordings');
       }
     } catch (_err) {
-      setError("Network error while trying to download video");
+      setError('Network error while trying to download video');
     } finally {
       setIsDownloading(false);
     }
@@ -400,6 +484,16 @@ const App: React.FC = () => {
 
   return (
     <div className="app-container">
+      {/* Global stream loading progress bar */}
+      {isStreamsLoading && (
+        <div className="progress-bar-track">
+          <div
+            className="progress-bar-fill"
+            style={{ width: `${loadProgress}%` }}
+          />
+        </div>
+      )}
+
       <header>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <button
@@ -411,9 +505,44 @@ const App: React.FC = () => {
           </button>
           <div className="logo">Ezviz CCTV Streaming</div>
         </div>
-        <div className="status-badge">
-          <Info size={14} />
-          {devices.length > 0 ? `${devices.length} Cameras Loaded` : 'SDK v5.1.18 Ready'}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+          {/* Camera stats — only shown when devices are loaded */}
+          {devices.length > 0 && (
+            <div className="camera-stats">
+              <span className="stat-badge stat-total">
+                <Info size={12} />
+                {devices.length} Total
+              </span>
+              <span className="stat-badge stat-online">
+                <Wifi size={12} />
+                {onlineCount} Online
+              </span>
+              <span className="stat-badge stat-offline">
+                <WifiOff size={12} />
+                {offlineCount} Offline
+              </span>
+              {isStreamsLoading && (
+                <span className="stat-badge stat-loading">
+                  <span className="pulse-dot" />
+                  Loading {streamSettled}/{streamTotal}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Token persistence indicator */}
+          {tokenSaved ? (
+            <div className="status-badge" title="Access token is saved locally (7-day TTL)">
+              <Key size={12} />
+              Token Saved
+            </div>
+          ) : (
+            <div className="status-badge" style={{ background: 'rgba(99,102,241,0.1)', color: '#818cf8' }}>
+              <Info size={12} />
+              SDK v5.1.18 Ready
+            </div>
+          )}
         </div>
       </header>
 
@@ -438,13 +567,29 @@ const App: React.FC = () => {
             </div>
 
             <div className="input-group">
-              <label><Key size={14} style={{ marginBottom: -2, marginRight: 4 }} /> Access Token</label>
+              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span><Key size={14} style={{ marginBottom: -2, marginRight: 4 }} /> Access Token</span>
+                {tokenSaved && (
+                  <button
+                    onClick={handleClearToken}
+                    style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem' }}
+                    title="Clear saved token"
+                  >
+                    <LogOut size={12} /> Clear
+                  </button>
+                )}
+              </label>
               <input
                 type="password"
                 placeholder="Paste your accessToken here"
                 value={accessToken}
                 onChange={(e) => setAccessToken(e.target.value)}
               />
+              {tokenSaved && (
+                <p style={{ fontSize: '0.7rem', color: '#10b981', marginTop: '0.35rem' }}>
+                  ✓ Token loaded from local storage (valid 7 days)
+                </p>
+              )}
             </div>
 
             <div className="input-group">
@@ -613,6 +758,7 @@ const App: React.FC = () => {
                     playbackEndTime={playbackEndTime}
                     isActive={mode === 'live' ? isAllActive : isSingleRecActive}
                     onStatusChange={updateDeviceStatus}
+                    onStreamSettled={handleStreamSettled}
                   />
                 ))}
             </div>
