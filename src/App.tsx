@@ -409,7 +409,7 @@ const App: React.FC = () => {
           >
             <Menu size={24} />
           </button>
-          <div className="logo">PLN UP2D BANTEN CCTV-AI</div>
+          <div className="logo">Ezviz CCTV Streaming</div>
         </div>
         <div className="status-badge">
           <Info size={14} />

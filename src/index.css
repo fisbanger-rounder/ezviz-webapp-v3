@@ -333,3 +333,82 @@ main.sidebar-hidden {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* ── Global stream loading progress bar ──────────────────────────────────── */
+.progress-bar-track {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: rgba(99, 102, 241, 0.15);
+  z-index: 9999;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #c084fc, #6366f1);
+  background-size: 200% 100%;
+  animation: progress-shimmer 1.4s linear infinite;
+  transition: width 0.4s ease;
+  border-radius: 0 2px 2px 0;
+}
+
+@keyframes progress-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Camera stat badges in the header ────────────────────────────────────── */
+.camera-stats {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.stat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.25rem 0.6rem;
+  border-radius: 1rem;
+  white-space: nowrap;
+}
+
+.stat-total {
+  background: rgba(99, 102, 241, 0.12);
+  color: #818cf8;
+}
+
+.stat-online {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+}
+
+.stat-offline {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+}
+
+.stat-loading {
+  background: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+}
+
+/* ── Pulsing dot for the "Loading X/Y" badge ─────────────────────────────── */
+.pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f59e0b;
+  animation: pulse 1.2s ease-in-out infinite;
+  display: inline-block;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
