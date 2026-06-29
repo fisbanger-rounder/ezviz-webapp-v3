@@ -6,7 +6,7 @@ import { EZUIKitPlayer } from 'ezuikit-js';
 // Global type definition for EZUIKit
 declare global {
   interface Window {
-    EZUIKit: any;
+    EZUIKit: unknown;
   }
 }
 
@@ -37,7 +37,7 @@ const CameraPlayer: React.FC<CameraPlayerProps> = ({
   device, accessToken, region, mode, recType, playbackTime, playbackEndTime, isActive, index, onStatusChange
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const playerRef = useRef<any>(null);
+  const playerRef = useRef<EZUIKitPlayer | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -45,7 +45,7 @@ const CameraPlayer: React.FC<CameraPlayerProps> = ({
   const playerId = `video-container-${device.deviceSerial}-${device.channelNo}`;
 
   useEffect(() => {
-    let timeoutId: any;
+    let timeoutId: ReturnType<typeof setTimeout>;
 
     // Auto-play only if globally active AND device is online
     if (isActive) {
@@ -103,7 +103,7 @@ const CameraPlayer: React.FC<CameraPlayerProps> = ({
         autoplay: true,
         staticPath: '/ezuikit_static',
         ...(region !== 'https://open.ys7.com' ? { env: { domain: region } } : {}),
-        handleError: (err: any) => {
+        handleError: (err: unknown) => {
           console.error(`EZUIKit Error (${device.deviceSerial}):`, err);
           setError("Device Offline");
           setIsLoading(false);
@@ -121,7 +121,7 @@ const CameraPlayer: React.FC<CameraPlayerProps> = ({
           }
         }
       });
-    } catch (err) {
+    } catch (_err) {
       setError("Init error");
       setIsLoading(false);
       setIsPlaying(false);
@@ -132,7 +132,9 @@ const CameraPlayer: React.FC<CameraPlayerProps> = ({
     if (playerRef.current) {
       try {
         playerRef.current.stop();
-      } catch (e) { }
+      } catch (_e) {
+        // Ignore errors when stopping an already-destroyed player
+      }
       playerRef.current = null;
     }
     if (containerRef.current) {
@@ -262,7 +264,7 @@ const App: React.FC = () => {
       } else {
         setError(data.msg || "Failed to fetch token");
       }
-    } catch (err) {
+    } catch (_err) {
       setError("Network error while fetching token");
     } finally {
       setIsLoading(false);
@@ -297,7 +299,7 @@ const App: React.FC = () => {
       } else {
         setError(data.msg || "Failed to fetch device list");
       }
-    } catch (err) {
+    } catch (_err) {
       setError("Network error while fetching device list");
     } finally {
       setIsLoading(false);
@@ -324,7 +326,7 @@ const App: React.FC = () => {
           setDevices(prevDevices => {
             let hasChanges = false;
             const updatedDevices = prevDevices.map(prevDev => {
-              const freshDev = data.data.find((d: any) => d.deviceSerial === prevDev.deviceSerial && d.channelNo === prevDev.channelNo);
+              const freshDev = data.data.find((d: Device) => d.deviceSerial === prevDev.deviceSerial && d.channelNo === prevDev.channelNo);
               if (freshDev && freshDev.status !== prevDev.status) {
                 hasChanges = true;
                 return { ...prevDev, status: freshDev.status };
@@ -335,8 +337,8 @@ const App: React.FC = () => {
             return hasChanges ? updatedDevices : prevDevices;
           });
         }
-      } catch (err) {
-        console.error("Background polling failed", err);
+      } catch (_err) {
+        console.error("Background polling failed");
       }
     }, 30000); // 30 seconds interval
 
@@ -389,7 +391,7 @@ const App: React.FC = () => {
       } else {
         setError(data.msg || "Failed to search for video recordings");
       }
-    } catch (err) {
+    } catch (_err) {
       setError("Network error while trying to download video");
     } finally {
       setIsDownloading(false);
