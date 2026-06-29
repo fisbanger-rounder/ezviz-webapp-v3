@@ -745,6 +745,7 @@ const App: React.FC = () => {
             <div className={`cameras-grid ${mode === 'rec' ? 'single-camera-mode' : ''}`}>
               {devices
                 .filter(device => mode === 'live' || `${device.deviceSerial}-${device.channelNo}` === selectedRecDevice)
+                .sort((a, b) => b.status - a.status) // online (1) before offline (0)
                 .map((device, index) => (
                   <CameraPlayer
                     key={`${device.deviceSerial}-${device.channelNo}`}
