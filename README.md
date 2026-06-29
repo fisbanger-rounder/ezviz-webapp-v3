@@ -53,3 +53,28 @@ If you wish to run the app locally for development purposes (to test code change
    npm run dev
    ```
 4. Open the local URL provided in your terminal (usually `http://localhost:5173`).
+
+---
+
+## 🚀 CI/CD Pipeline (GitHub Actions)
+
+This project has a continuous integration pipeline configured via GitHub Actions. You can find the workflow configuration file at [.github/workflows/ci-cd.yml](.github/workflows/ci-cd.yml).
+
+### Workflow Triggers
+
+The CI/CD pipeline triggers automatically on:
+- Every push to the `main` or `master` branches.
+- Every Pull Request targeting the `main` or `master` branches.
+- Manual triggers via the **Actions** tab on GitHub.
+
+### Pipeline Stages
+
+1. **Build & Test**:
+   - Sets up Node.js environment.
+   - Installs dependencies securely using `npm ci`.
+   - Lints the codebase (`npm run lint`).
+   - Builds the production bundle (`npm run build`).
+
+2. **Docker Build Validation**:
+   - Performs a dry-run build of the Docker image to ensure the [Dockerfile](Dockerfile) compiles successfully.
+
