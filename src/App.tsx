@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Camera, Play, Video, Key, Calendar, AlertCircle, Info, Grid, Square, PlayCircle, Menu, Download, Wifi, WifiOff, LogOut, Eye, EyeOff, User, Lock, Server, RefreshCw } from 'lucide-react';
+import { Camera, Play, Video, Calendar, AlertCircle, Info, Grid, Square, PlayCircle, Menu, Download, Wifi, WifiOff, LogOut, Eye, EyeOff, User, Lock, Server, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import { EZUIKitPlayer } from 'ezuikit-js';
 
