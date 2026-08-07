@@ -1,0 +1,14 @@
+{
+  "projectId": "6a75420f00029b31c854",
+  "projectName": "ezviz-cctv",
+  "functions": [
+    {
+      "$id": "6a75449e000ee027b0b1",
+      "name": "ezviz-login",
+      "runtime": "node-18.0",
+      "path": "appwrite/functions/ezviz-login",
+      "entrypoint": "src/main.js",
+      "execute": ["any"]
+    }
+  ]
+}

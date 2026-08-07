@@ -116,14 +116,14 @@ async function fetchEzvizToken(
   const execution = await resp.json();
 
   if (execution.status !== 'completed') {
-    throw new Error('Function execution did not complete: ' + (execution.errors || 'unknown error'));
+    throw new Error('Function execution failed: ' + (execution.errors || execution.responseBody || 'unknown error'));
   }
 
-  let data: { accessToken?: string; areaDomain?: string; error?: string };
+  let data: { accessToken?: string; areaDomain?: string; error?: string } = {};
   try {
     data = JSON.parse(execution.responseBody ?? '{}');
   } catch (_e) {
-    throw new Error('Unexpected response from server.');
+    throw new Error('Unexpected response format from server: ' + (execution.responseBody || 'empty response'));
   }
 
   if (data.error || !data.accessToken) {
