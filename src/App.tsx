@@ -115,19 +115,25 @@ async function fetchEzvizToken(
   // The actual function return value is in `responseBody` as a JSON string.
   const execution = await resp.json();
 
-  if (execution.status !== 'completed') {
-    throw new Error('Function execution failed: ' + (execution.errors || execution.responseBody || 'unknown error'));
-  }
-
+  // Try parsing responseBody first to extract server error messages
   let data: { accessToken?: string; areaDomain?: string; error?: string } = {};
-  try {
-    data = JSON.parse(execution.responseBody ?? '{}');
-  } catch (_e) {
-    throw new Error('Unexpected response format from server: ' + (execution.responseBody || 'empty response'));
+  if (execution.responseBody) {
+    try {
+      data = JSON.parse(execution.responseBody);
+    } catch (_e) { /* ignore */ }
   }
 
-  if (data.error || !data.accessToken) {
-    throw new Error(data.error || 'Login failed. Please check your credentials.');
+  if (data.error) {
+    throw new Error(data.error);
+  }
+
+  if (execution.status !== 'completed') {
+    const detail = execution.errors || execution.responseBody || `Status: ${execution.status} (HTTP ${execution.responseStatusCode ?? 'N/A'})`;
+    throw new Error('Function execution failed: ' + detail);
+  }
+
+  if (!data.accessToken) {
+    throw new Error('Login failed. Please check your credentials.');
   }
 
   return { accessToken: data.accessToken, areaDomain: data.areaDomain! };
