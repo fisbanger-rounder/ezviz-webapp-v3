@@ -39,10 +39,31 @@ export default async ({ req, res, log, error }) => {
 
   // ── Parse request body ─────────────────────────────────────────────────────
   let body = {};
-  try {
-    body = JSON.parse(req.body || '{}');
-  } catch (_e) {
-    return res.json({ error: 'Invalid JSON body.' }, 400);
+  if (typeof req.body === 'object' && req.body !== null) {
+    body = req.body;
+  } else if (typeof req.body === 'string') {
+    try {
+      body = JSON.parse(req.body || '{}');
+    } catch (_e) {
+      if (req.bodyRaw) {
+        try {
+          body = JSON.parse(req.bodyRaw);
+        } catch (_e2) {
+          error(`Failed to parse body string: ${req.body}`);
+          return res.json({ error: 'Invalid JSON body.' }, 400);
+        }
+      } else {
+        error(`Failed to parse body string: ${req.body}`);
+        return res.json({ error: 'Invalid JSON body.' }, 400);
+      }
+    }
+  } else if (req.bodyRaw) {
+    try {
+      body = JSON.parse(req.bodyRaw);
+    } catch (_e) {
+      error(`Failed to parse bodyRaw: ${req.bodyRaw}`);
+      return res.json({ error: 'Invalid JSON body.' }, 400);
+    }
   }
 
   const { account, password, region = DEFAULT_REGION } = body;
