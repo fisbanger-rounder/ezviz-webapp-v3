@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Camera, Play, Video, Key, Calendar, AlertCircle, Info, Grid, Square, PlayCircle, Menu, Download, Wifi, WifiOff, LogOut } from 'lucide-react';
+import { Camera, Play, Video, Key, Calendar, AlertCircle, Info, Grid, Square, PlayCircle, Menu, Download, Wifi, WifiOff, LogOut, Eye, EyeOff, User, Lock, Server, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import { EZUIKitPlayer } from 'ezuikit-js';
 
@@ -10,38 +10,127 @@ declare global {
   }
 }
 
-// ── LocalStorage helpers for persistent token (7-day TTL) ──────────────────
-const TOKEN_KEY = 'ezviz_access_token';
-const TOKEN_TS_KEY = 'ezviz_token_timestamp';
-const REGION_KEY = 'ezviz_region';
+// ── Appwrite Function config (injected at build time via .env.local) ────────
+// Set these three values in your .env.local file.
+// VITE_APPWRITE_ENDPOINT   → e.g. https://cloud.appwrite.io/v1
+// VITE_APPWRITE_PROJECT_ID → your Appwrite Project ID
+// VITE_APPWRITE_FUNCTION_ID → the ID of the deployed ezviz-login function
+const APPWRITE_ENDPOINT: string =
+  import.meta.env.VITE_APPWRITE_ENDPOINT ?? 'https://cloud.appwrite.io/v1';
+const APPWRITE_PROJECT_ID: string =
+  import.meta.env.VITE_APPWRITE_PROJECT_ID ?? '';
+const APPWRITE_FUNCTION_ID: string =
+  import.meta.env.VITE_APPWRITE_FUNCTION_ID ?? '';
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface LoginCredentials {
+  account: string;
+  password: string;
+  region: string;
+  rememberPassword: boolean;
+}
+
+interface StoredSession {
+  accessToken: string;
+  tokenTimestamp: number;
+  account: string;
+  password: string; // stored only if rememberPassword is true
+  region: string;
+  rememberPassword: boolean;
+}
+
+// ── LocalStorage helpers ──────────────────────────────────────────────────────
+
+const SESSION_KEY = 'ezviz_session';
 const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-function loadPersistedToken(): { token: string; region: string } {
+function loadSession(): Partial<StoredSession> {
   try {
-    const token = localStorage.getItem(TOKEN_KEY) ?? '';
-    const ts = parseInt(localStorage.getItem(TOKEN_TS_KEY) ?? '0', 10);
-    const region = localStorage.getItem(REGION_KEY) ?? 'https://isgpopen.ezvizlife.com';
-    if (token && Date.now() - ts < TOKEN_TTL_MS) {
-      return { token, region };
-    }
-  } catch (_e) { /* localStorage not available */ }
-  return { token: '', region: 'https://isgpopen.ezvizlife.com' };
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (raw) return JSON.parse(raw) as StoredSession;
+  } catch (_e) { /* ignore */ }
+  return {};
 }
 
-function persistToken(token: string, region: string) {
+function saveSession(session: StoredSession) {
   try {
-    localStorage.setItem(TOKEN_KEY, token);
-    localStorage.setItem(TOKEN_TS_KEY, String(Date.now()));
-    localStorage.setItem(REGION_KEY, region);
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   } catch (_e) { /* ignore */ }
 }
 
-function clearPersistedToken() {
+function clearSession() {
   try {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(TOKEN_TS_KEY);
-    localStorage.removeItem(REGION_KEY);
+    localStorage.removeItem(SESSION_KEY);
   } catch (_e) { /* ignore */ }
+}
+
+function isTokenValid(session: Partial<StoredSession>): boolean {
+  return !!(
+    session.accessToken &&
+    session.tokenTimestamp &&
+    Date.now() - session.tokenTimestamp < TOKEN_TTL_MS
+  );
+}
+
+// ── Call the Appwrite Function via REST API (no SDK required) ────────────────
+
+async function fetchEzvizToken(
+  account: string,
+  password: string,
+  region: string,
+): Promise<{ accessToken: string; areaDomain: string }> {
+  if (!APPWRITE_PROJECT_ID || !APPWRITE_FUNCTION_ID) {
+    throw new Error(
+      'VITE_APPWRITE_PROJECT_ID or VITE_APPWRITE_FUNCTION_ID is not set. ' +
+      'Please add them to your .env.local file.',
+    );
+  }
+
+  // Execute the Appwrite Function synchronously via the REST API.
+  // The function must have Execute permission set to "Any" in the Appwrite Console.
+  const executionUrl = `${APPWRITE_ENDPOINT}/functions/${APPWRITE_FUNCTION_ID}/executions`;
+
+  const resp = await fetch(executionUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Appwrite-Project': APPWRITE_PROJECT_ID,
+    },
+    body: JSON.stringify({
+      body: JSON.stringify({ account, password, region }),
+      async: false,
+      path: '/',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  });
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(`Appwrite error ${resp.status}: ${errText}`);
+  }
+
+  // Appwrite wraps the function response inside an execution object.
+  // The actual function return value is in `responseBody` as a JSON string.
+  const execution = await resp.json();
+
+  if (execution.status !== 'completed') {
+    throw new Error('Function execution did not complete: ' + (execution.errors || 'unknown error'));
+  }
+
+  let data: { accessToken?: string; areaDomain?: string; error?: string };
+  try {
+    data = JSON.parse(execution.responseBody ?? '{}');
+  } catch (_e) {
+    throw new Error('Unexpected response from server.');
+  }
+
+  if (data.error || !data.accessToken) {
+    throw new Error(data.error || 'Login failed. Please check your credentials.');
+  }
+
+  return { accessToken: data.accessToken, areaDomain: data.areaDomain! };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -55,6 +144,179 @@ interface Device {
   channelName?: string;
   status: number;
 }
+
+// ── LoginScreen Component ─────────────────────────────────────────────────────
+
+interface LoginScreenProps {
+  onLogin: (token: string, region: string, credentials: LoginCredentials) => void;
+}
+
+const DEFAULT_REGION = 'https://isgpopen.ezvizlife.com';
+
+const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
+  const saved = loadSession();
+
+  const [account, setAccount] = useState(saved.account ?? '');
+  const [password, setPassword] = useState(saved.rememberPassword ? (saved.password ?? '') : '');
+  const [region, setRegion] = useState(saved.region ?? DEFAULT_REGION);
+  const [rememberPassword, setRememberPassword] = useState(saved.rememberPassword ?? false);
+
+  const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!account.trim() || !password.trim()) {
+      setError('Please enter your EZVIZ username and password.');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const { accessToken, areaDomain } = await fetchEzvizToken(account, password, region);
+      const creds: LoginCredentials = { account, password, region: areaDomain, rememberPassword };
+      onLogin(accessToken, areaDomain, creds);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="login-screen">
+      <div className="login-card">
+        {/* Branding */}
+        <div className="login-brand">
+          <div className="login-logo-ring">
+            <Camera size={32} strokeWidth={1.5} />
+          </div>
+          <h1 className="login-title">Ezviz CCTV</h1>
+          <p className="login-subtitle">Sign in with your EZVIZ account</p>
+        </div>
+
+        <form className="login-form" onSubmit={handleLogin} noValidate>
+          {/* Region selector */}
+          <div className="login-field">
+            <label htmlFor="login-region">
+              <Server size={14} />
+              Server Region
+            </label>
+            <select
+              id="login-region"
+              value={region}
+              onChange={(e) => setRegion(e.target.value)}
+              disabled={isLoading}
+            >
+              <option value="https://isgpopen.ezvizlife.com">Asia / Singapore</option>
+              <option value="https://iusopen.ezvizlife.com">North America</option>
+              <option value="https://isaopen.ezvizlife.com">South America</option>
+              <option value="https://ieuopen.ezvizlife.com">Europe</option>
+              <option value="https://iindiaopen.ezvizlife.com">India</option>
+              <option value="https://open.ys7.com">China (ys7.com)</option>
+            </select>
+          </div>
+
+          {/* EZVIZ Username */}
+          <div className="login-field">
+            <label htmlFor="login-account">
+              <User size={14} />
+              EZVIZ Username / Email
+            </label>
+            <input
+              id="login-account"
+              type="text"
+              placeholder="Your EZVIZ app username or email"
+              value={account}
+              onChange={(e) => setAccount(e.target.value)}
+              autoComplete="username"
+              disabled={isLoading}
+              autoFocus
+            />
+          </div>
+
+          {/* EZVIZ Password */}
+          <div className="login-field">
+            <label htmlFor="login-password">
+              <Lock size={14} />
+              Password
+            </label>
+            <div className="login-password-wrap">
+              <input
+                id="login-password"
+                type={showPassword ? 'text' : 'password'}
+                placeholder="Your EZVIZ app password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                disabled={isLoading}
+              />
+              <button
+                type="button"
+                className="toggle-eye"
+                onClick={() => setShowPassword(!showPassword)}
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
+
+          {/* Remember password */}
+          <label className="login-checkbox">
+            <input
+              type="checkbox"
+              checked={rememberPassword}
+              onChange={(e) => setRememberPassword(e.target.checked)}
+              disabled={isLoading}
+            />
+            <span>Remember me on this device</span>
+          </label>
+
+          {/* Error */}
+          {error && (
+            <div className="login-error">
+              <AlertCircle size={15} />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {/* Submit */}
+          <button
+            type="submit"
+            className="login-btn"
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <>
+                <span className="login-spinner" />
+                Signing in…
+              </>
+            ) : (
+              <>
+                <Camera size={18} />
+                Sign In
+              </>
+            )}
+          </button>
+        </form>
+
+        <p className="login-hint">
+          Use the same username &amp; password as the{' '}
+          <a href="https://www.ezviz.com/" target="_blank" rel="noreferrer">
+            EZVIZ mobile app
+          </a>
+        </p>
+      </div>
+    </div>
+  );
+};
+
+// ── CameraPlayer Component ────────────────────────────────────────────────────
 
 interface CameraPlayerProps {
   device: Device;
@@ -250,21 +512,24 @@ const CameraPlayer: React.FC<CameraPlayerProps> = ({
   );
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Main App ──────────────────────────────────────────────────────────────────
 
 const App: React.FC = () => {
-  // Config State — initialise from localStorage
-  const persisted = loadPersistedToken();
-  const [appKey, setAppKey] = useState('');
-  const [appSecret, setAppSecret] = useState('');
-  const [accessToken, setAccessToken] = useState(persisted.token);
-  const [tokenSaved, setTokenSaved] = useState(!!persisted.token);
+  const savedSession = loadSession();
+
+  // Auth State
+  const [accessToken, setAccessToken] = useState(
+    isTokenValid(savedSession) ? (savedSession.accessToken ?? '') : ''
+  );
+  const [loggedInAccount, setLoggedInAccount] = useState(savedSession.account ?? '');
+  const [region, setRegion] = useState(savedSession.region ?? DEFAULT_REGION);
+  const [isLoggedIn, setIsLoggedIn] = useState(isTokenValid(savedSession));
+  const [isAutoLogging, setIsAutoLogging] = useState(false);
 
   const [mode, setMode] = useState<'live' | 'rec'>('live');
   const [playbackTime, setPlaybackTime] = useState(format(new Date(), "yyyy-MM-dd'T'HH:mm:ss"));
   const [playbackEndTime, setPlaybackEndTime] = useState(format(new Date(), "yyyy-MM-dd'T'HH:mm:ss"));
   const [recType, setRecType] = useState<'local' | 'cloud'>('local');
-  const [region, setRegion] = useState(persisted.region);
 
   // App State
   const [devices, setDevices] = useState<Device[]>([]);
@@ -290,21 +555,60 @@ const App: React.FC = () => {
   const loadProgress = streamTotal > 0 ? Math.round((streamSettled / streamTotal) * 100) : 0;
   const isStreamsLoading = isAllActive && streamTotal > 0 && streamSettled < streamTotal;
 
-  // Persist token whenever it changes
+  // Auto-login: if token expired but credentials (+ password) are saved, silently refresh
   useEffect(() => {
-    if (accessToken) {
-      persistToken(accessToken, region);
-      setTokenSaved(true);
+    const session = loadSession();
+    if (!isTokenValid(session) && session.account && session.password && session.rememberPassword) {
+      setIsAutoLogging(true);
+      (async () => {
+        try {
+          const { accessToken: token, areaDomain } = await fetchEzvizToken(
+            session.account!,
+            session.password!,
+            session.region ?? DEFAULT_REGION,
+          );
+          handleLoginSuccess(token, areaDomain, {
+            account: session.account!,
+            password: session.password!,
+            region: areaDomain,
+            rememberPassword: true,
+          });
+        } catch (_e) {
+          // Silent failure → show login screen with pre-filled username
+        } finally {
+          setIsAutoLogging(false);
+        }
+      })();
     }
-  }, [accessToken, region]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const handleClearToken = () => {
-    clearPersistedToken();
+  const handleLoginSuccess = (token: string, resolvedRegion: string, creds: LoginCredentials) => {
+    setAccessToken(token);
+    setRegion(resolvedRegion);
+    setLoggedInAccount(creds.account);
+    setIsLoggedIn(true);
+
+    saveSession({
+      accessToken: token,
+      tokenTimestamp: Date.now(),
+      account: creds.account,
+      password: creds.rememberPassword ? creds.password : '',
+      region: resolvedRegion,
+      rememberPassword: creds.rememberPassword,
+    });
+  };
+
+  const handleLogout = () => {
+    clearSession();
     setAccessToken('');
-    setTokenSaved(false);
+    setLoggedInAccount('');
+    setIsLoggedIn(false);
     setDevices([]);
     setIsAllActive(false);
     setError(null);
+    setSelectedRecDevice('');
+    setIsSingleRecActive(false);
   };
 
   const handleStreamSettled = useCallback(() => {
@@ -321,41 +625,9 @@ const App: React.FC = () => {
     );
   };
 
-  // Fetch token if AppKey/Secret are provided
-  const fetchToken = async () => {
-    if (!appKey || !appSecret) {
-      setError('Please provide both AppKey and AppSecret');
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch(`${region}/api/lapp/token/get`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: `appKey=${appKey}&appSecret=${appSecret}`,
-      });
-
-      const data = await response.json();
-
-      if (data.code === '200') {
-        setAccessToken(data.data.accessToken);
-        setError(null);
-      } else {
-        setError(data.msg || 'Failed to fetch token');
-      }
-    } catch (_err) {
-      setError('Network error while fetching token');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const fetchDevices = async () => {
     if (!accessToken) {
-      setError('Access Token is required to fetch devices.');
+      setError('Not authenticated. Please log in again.');
       return;
     }
 
@@ -376,11 +648,13 @@ const App: React.FC = () => {
         setDevices(fetchedDevices);
         setError(null);
 
-        // Set up progress tracking before activating streams
         const onlineDevices = fetchedDevices.filter(d => d.status === 1).length;
         setStreamTotal(onlineDevices);
         setStreamSettled(0);
         setIsAllActive(true);
+      } else if (data.code === '10002' || data.code === '20002') {
+        setError('Session expired. Please log in again.');
+        handleLogout();
       } else {
         setError(data.msg || 'Failed to fetch device list');
       }
@@ -470,7 +744,7 @@ const App: React.FC = () => {
             setError('No direct download link available. Note: Downloading SD Card recordings directly via Web is not supported by EZVIZ API. Please use EZVIZ Studio PC.');
           }
         } else {
-          setError('No video recordings found for the selected time range. Note: Direct download of SD Card recordings is restricted by EZVIZ API. Please use EZVIZ Studio PC.');
+          setError('No video recordings found for the selected time range.');
         }
       } else {
         setError(data.msg || 'Failed to search for video recordings');
@@ -482,6 +756,24 @@ const App: React.FC = () => {
     }
   };
 
+  // ── Auto-login spinner ────────────────────────────────────────────────────
+  if (isAutoLogging) {
+    return (
+      <div className="login-screen">
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', color: 'var(--text-muted)' }}>
+          <RefreshCw size={32} style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />
+          <p>Resuming session…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Show Login Screen if not logged in ────────────────────────────────────
+  if (!isLoggedIn) {
+    return <LoginScreen onLogin={handleLoginSuccess} />;
+  }
+
+  // ── Main App ──────────────────────────────────────────────────────────────
   return (
     <div className="app-container">
       {/* Global stream loading progress bar */}
@@ -507,7 +799,7 @@ const App: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-          {/* Camera stats — only shown when devices are loaded */}
+          {/* Camera stats */}
           {devices.length > 0 && (
             <div className="camera-stats">
               <span className="stat-badge stat-total">
@@ -531,16 +823,11 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {/* Token persistence indicator */}
-          {tokenSaved ? (
-            <div className="status-badge" title="Access token is saved locally (7-day TTL)">
-              <Key size={12} />
-              Token Saved
-            </div>
-          ) : (
-            <div className="status-badge" style={{ background: 'rgba(99,102,241,0.1)', color: '#818cf8' }}>
-              <Info size={12} />
-              SDK v5.1.18 Ready
+          {/* Logged-in account indicator */}
+          {loggedInAccount && (
+            <div className="status-badge" title={`Logged in as ${loggedInAccount}`}>
+              <User size={12} />
+              {loggedInAccount}
             </div>
           )}
         </div>
@@ -566,74 +853,30 @@ const App: React.FC = () => {
               </button>
             </div>
 
-            <div className="input-group">
-              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span><Key size={14} style={{ marginBottom: -2, marginRight: 4 }} /> Access Token</span>
-                {tokenSaved && (
-                  <button
-                    onClick={handleClearToken}
-                    style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem' }}
-                    title="Clear saved token"
-                  >
-                    <LogOut size={12} /> Clear
-                  </button>
-                )}
-              </label>
-              <input
-                type="password"
-                placeholder="Paste your accessToken here"
-                value={accessToken}
-                onChange={(e) => setAccessToken(e.target.value)}
-              />
-              {tokenSaved && (
-                <p style={{ fontSize: '0.7rem', color: '#10b981', marginTop: '0.35rem' }}>
-                  ✓ Token loaded from local storage (valid 7 days)
-                </p>
-              )}
-            </div>
-
-            <div className="input-group">
-              <label>Server Region</label>
-              <select value={region} onChange={(e) => { setRegion(e.target.value); setDevices([]); setIsAllActive(false); setSelectedRecDevice(''); setIsSingleRecActive(false); }}>
-                <option value="https://isgpopen.ezvizlife.com">Asia/Singapore</option>
-                <option value="https://iusopen.ezvizlife.com">North America</option>
-                <option value="https://isaopen.ezvizlife.com">South America</option>
-                <option value="https://ieuopen.ezvizlife.com">Europe</option>
-                <option value="https://iindiaopen.ezvizlife.com">India</option>
-                <option value="https://open.ys7.com">China (ys7.com)</option>
-              </select>
-            </div>
-
-            <details style={{ marginBottom: '1.5rem' }}>
-              <summary style={{ cursor: 'pointer', color: 'var(--text-muted)', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
-                Don't have a token? Use AppKey / Secret
-              </summary>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '0.5rem' }}>
-                <div className="input-group">
-                  <input
-                    type="text"
-                    placeholder="AppKey"
-                    value={appKey}
-                    onChange={(e) => setAppKey(e.target.value)}
-                  />
+            {/* Account info + Logout */}
+            <div className="account-panel">
+              <div className="account-info">
+                <div className="account-avatar">
+                  <User size={16} />
                 </div>
-                <div className="input-group">
-                  <input
-                    type="password"
-                    placeholder="AppSecret"
-                    value={appSecret}
-                    onChange={(e) => setAppSecret(e.target.value)}
-                  />
+                <div className="account-details">
+                  <span className="account-name">{loggedInAccount || 'EZVIZ Account'}</span>
+                  <span className="account-region">{region.replace('https://', '')}</span>
                 </div>
               </div>
-              <button className="btn btn-secondary" onClick={fetchToken} style={{ marginBottom: '1rem' }} disabled={isLoading}>
-                {isLoading && !accessToken ? 'Fetching...' : 'Fetch Token from API'}
+              <button
+                className="btn-logout"
+                onClick={handleLogout}
+                title="Sign out"
+              >
+                <LogOut size={15} />
+                Sign Out
               </button>
-            </details>
+            </div>
 
             <button className="btn btn-primary" onClick={fetchDevices} style={{ marginBottom: '1.5rem' }} disabled={isLoading || !accessToken}>
               <Camera size={18} />
-              {isLoading && accessToken ? 'Fetching Devices...' : 'Fetch Device List'}
+              {isLoading ? 'Fetching Devices...' : 'Fetch Device List'}
             </button>
 
             <hr style={{ border: 'none', borderTop: '1px solid var(--border)', marginBottom: '1.5rem' }} />
@@ -680,14 +923,14 @@ const App: React.FC = () => {
                         <option key={`${device.deviceSerial}-${device.channelNo}`} value={`${device.deviceSerial}-${device.channelNo}`}>
                           {headerTitle}
                         </option>
-                      )
+                      );
                     })}
                   </select>
                 </div>
               </>
             )}
 
-            <div className="controls-grid" style={{ marginTop: '2rem' }}>
+            <div className="controls-grid" style={{ marginTop: mode === 'rec' ? 0 : '2rem' }}>
               {mode === 'live' ? (
                 <button
                   className={`btn ${isAllActive ? 'btn-secondary' : 'btn-primary'}`}
@@ -733,7 +976,7 @@ const App: React.FC = () => {
             <div className="empty-state">
               <Grid size={48} color="var(--border)" style={{ marginBottom: '1rem' }} />
               <h3>No Cameras Found</h3>
-              <p>Enter your Access Token and click "Fetch Device List" to load your cameras.</p>
+              <p>Click "Fetch Device List" to load your cameras.</p>
             </div>
           ) : mode === 'rec' && !selectedRecDevice ? (
             <div className="empty-state">
@@ -745,7 +988,7 @@ const App: React.FC = () => {
             <div className={`cameras-grid ${mode === 'rec' ? 'single-camera-mode' : ''}`}>
               {devices
                 .filter(device => mode === 'live' || `${device.deviceSerial}-${device.channelNo}` === selectedRecDevice)
-                .sort((a, b) => b.status - a.status) // online (1) before offline (0)
+                .sort((a, b) => b.status - a.status)
                 .map((device, index) => (
                   <CameraPlayer
                     key={`${device.deviceSerial}-${device.channelNo}`}

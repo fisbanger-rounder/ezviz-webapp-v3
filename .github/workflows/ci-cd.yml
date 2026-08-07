@@ -42,6 +42,15 @@ jobs:
 
       - name: Build application
         run: npm run build
+        env:
+          # Injected from GitHub repository secrets: Settings → Secrets → Actions
+          # Add these three secrets in your GitHub repository:
+          #   VITE_APPWRITE_ENDPOINT    → https://cloud.appwrite.io/v1
+          #   VITE_APPWRITE_PROJECT_ID  → your Appwrite Project ID
+          #   VITE_APPWRITE_FUNCTION_ID → the ID of the deployed ezviz-login function
+          VITE_APPWRITE_ENDPOINT: ${{ secrets.VITE_APPWRITE_ENDPOINT }}
+          VITE_APPWRITE_PROJECT_ID: ${{ secrets.VITE_APPWRITE_PROJECT_ID }}
+          VITE_APPWRITE_FUNCTION_ID: ${{ secrets.VITE_APPWRITE_FUNCTION_ID }}
 
       - name: Upload build artifact for Pages
         # Only upload artifact on push to main (not on PRs)

@@ -1,0 +1,7 @@
+{
+  "name": "ezviz-login",
+  "version": "1.0.0",
+  "description": "Appwrite Function — proxy EZVIZ user-token API, keeping AppKey/AppSecret server-side",
+  "type": "module",
+  "main": "src/main.js"
+}
