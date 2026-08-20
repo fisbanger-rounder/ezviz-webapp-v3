@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Camera, Play, Video, Calendar, AlertCircle, Info, Grid, Square, PlayCircle, Menu, Download, Wifi, WifiOff, LogOut, Eye, EyeOff, User, Lock, Server, RefreshCw } from 'lucide-react';
+import { Camera, Play, Video, Calendar, AlertCircle, Info, Grid, Square, PlayCircle, Menu, Download, Wifi, WifiOff, LogOut, Eye, EyeOff, User, Lock, Server, RefreshCw, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Move, Minus, Plus, Volume2, VolumeX, Bell, Music, Radio, Volume1 } from 'lucide-react';
 import { format } from 'date-fns';
 import { EZUIKitPlayer } from 'ezuikit-js';
 
@@ -322,6 +322,345 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
   );
 };
 
+// ── PTZ Controls Component ─────────────────────────────────────────────────────
+
+interface PtzControlsProps {
+  deviceSerial: string;
+  channelNo: number;
+  accessToken: string;
+  region: string;
+  ptzStatus: 'checking' | 'supported' | 'unsupported';
+  onPtzStatusChange: (key: string, status: 'supported' | 'unsupported') => void;
+}
+
+const PtzControls: React.FC<PtzControlsProps> = ({
+  deviceSerial, channelNo, accessToken, region, ptzStatus, onPtzStatusChange,
+}) => {
+  const [speed, setSpeed] = useState(1);
+  const [activeDir, setActiveDir] = useState<number | null>(null);
+  const activeDirRef = useRef<number | null>(null);
+  const ptzKey = `${deviceSerial}-${channelNo}`;
+
+  const handlePtzStart = async (direction: number) => {
+    setActiveDir(direction);
+    activeDirRef.current = direction;
+    try {
+      const resp = await fetch(`${region}/api/lapp/device/ptz/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `accessToken=${accessToken}&deviceSerial=${deviceSerial}&channelNo=${channelNo}&direction=${direction}&speed=${speed}`,
+      });
+      const data = await resp.json();
+      if (data.code === '200' || ['60002','60003','60004','60005','60006','60009'].includes(data.code)) {
+        if (ptzStatus !== 'supported') onPtzStatusChange(ptzKey, 'supported');
+      } else if (data.code === '60000' || data.code === '60001' || data.code === '60020') {
+        onPtzStatusChange(ptzKey, 'unsupported');
+        setActiveDir(null);
+        activeDirRef.current = null;
+      }
+    } catch (_e) { /* ignore */ }
+  };
+
+  const handlePtzStop = async (direction: number) => {
+    if (activeDirRef.current !== direction) return;
+    setActiveDir(null);
+    activeDirRef.current = null;
+    try {
+      await fetch(`${region}/api/lapp/device/ptz/stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `accessToken=${accessToken}&deviceSerial=${deviceSerial}&channelNo=${channelNo}&direction=${direction}`,
+      });
+    } catch (_e) { /* ignore */ }
+  };
+
+  if (ptzStatus === 'unsupported') {
+    return (
+      <div className="ptz-unavailable">
+        <AlertCircle size={11} />
+        <span>PTZ Unavailable</span>
+      </div>
+    );
+  }
+
+  if (ptzStatus === 'checking') {
+    return (
+      <div className="ptz-checking">
+        <RefreshCw size={11} style={{ animation: 'spin 1s linear infinite' }} />
+        <span>Checking PTZ…</span>
+      </div>
+    );
+  }
+
+  const dirBtn = (dir: number, icon: React.ReactNode, label: string, className: string) => (
+    <button
+      className={`ptz-dpad-btn ${className} ${activeDir === dir ? 'active' : ''}`}
+      onMouseDown={() => handlePtzStart(dir)}
+      onMouseUp={() => handlePtzStop(dir)}
+      onMouseLeave={() => { if (activeDirRef.current === dir) handlePtzStop(dir); }}
+      onTouchStart={(e) => { e.preventDefault(); handlePtzStart(dir); }}
+      onTouchEnd={() => handlePtzStop(dir)}
+      title={label}
+    >
+      {icon}
+    </button>
+  );
+
+  return (
+    <div className="ptz-panel">
+      <div className="ptz-controls">
+        <div className="ptz-dpad">
+          {dirBtn(0, <ChevronUp size={14} />, 'Up', 'ptz-up')}
+          {dirBtn(2, <ChevronLeft size={14} />, 'Left', 'ptz-left')}
+          <div className="ptz-dpad-center">
+            <Move size={10} />
+          </div>
+          {dirBtn(3, <ChevronRight size={14} />, 'Right', 'ptz-right')}
+          {dirBtn(1, <ChevronDown size={14} />, 'Down', 'ptz-down')}
+        </div>
+        <div className="ptz-side-controls">
+          <div className="ptz-zoom">
+            {dirBtn(9, <Minus size={12} />, 'Zoom Out', 'ptz-zoom-btn')}
+            <span className="ptz-zoom-label">Zoom</span>
+            {dirBtn(8, <Plus size={12} />, 'Zoom In', 'ptz-zoom-btn')}
+          </div>
+          <div className="ptz-speed">
+            {[0, 1, 2].map(s => (
+              <button
+                key={s}
+                className={`ptz-speed-btn ${speed === s ? 'active' : ''}`}
+                onClick={() => setSpeed(s)}
+                title={['Slow', 'Medium', 'Fast'][s]}
+              >
+                {['S', 'M', 'F'][s]}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Alarm Sound Controls Component ────────────────────────────────────────────
+
+interface AlarmSoundControlsProps {
+  deviceSerial: string;
+  accessToken: string;
+  region: string;
+  alarmStatus: 'checking' | 'supported' | 'unsupported';
+  alarmType: number; // 0=Short, 1=Long, 2=Mute
+  onAlarmStatusChange: (key: string, status: 'supported' | 'unsupported') => void;
+  onAlarmTypeChange: (key: string, type: number) => void;
+}
+
+const AlarmSoundControls: React.FC<AlarmSoundControlsProps> = ({
+  deviceSerial, accessToken, region, alarmStatus, alarmType, onAlarmStatusChange, onAlarmTypeChange,
+}) => {
+  const [isSettling, setIsSettling] = useState(false);
+  const [feedback, setFeedback] = useState<{ msg: string; isError?: boolean } | null>(null);
+
+  const handleSetAlarm = async (type: number) => {
+    if (isSettling) return;
+    setIsSettling(true);
+    setFeedback(null);
+    try {
+      console.log(`[Alarm Sound] Setting alarm sound for ${deviceSerial} to type ${type}...`);
+      const resp = await fetch(`${region}/api/v3/device/alarmSound/enabled/set?type=${type}`, {
+        method: 'POST',
+        headers: { accessToken, deviceSerial },
+      });
+      const data = await resp.json();
+      console.log('[Alarm Sound Response]', data);
+      const code = data?.body?.meta?.code ?? data?.meta?.code ?? data?.code;
+      const msg = data?.body?.meta?.message ?? data?.meta?.message ?? data?.msg ?? 'Success';
+
+      if (code === 200 || code === '200') {
+        onAlarmTypeChange(deviceSerial, type);
+        if (alarmStatus !== 'supported') onAlarmStatusChange(deviceSerial, 'supported');
+        const labels = ['Short Call', 'Long Call', 'Mute'];
+        setFeedback({ msg: `✓ Set to ${labels[type]}` });
+        setTimeout(() => setFeedback(null), 3000);
+      } else if (code === 60020 || code === '60020') {
+        onAlarmStatusChange(deviceSerial, 'unsupported');
+        setFeedback({ msg: 'Not supported on this device', isError: true });
+      } else {
+        setFeedback({ msg: `Error ${code}: ${msg}`, isError: true });
+        setTimeout(() => setFeedback(null), 4000);
+      }
+    } catch (e: any) {
+      console.error('[Alarm Sound Error]', e);
+      setFeedback({ msg: e.message || 'Network error', isError: true });
+      setTimeout(() => setFeedback(null), 4000);
+    }
+    setIsSettling(false);
+  };
+
+  if (alarmStatus === 'unsupported') {
+    return (
+      <div className="alarm-unavailable">
+        <VolumeX size={11} />
+        <span>Alarm Sound Mode Unavailable</span>
+      </div>
+    );
+  }
+
+  if (alarmStatus === 'checking') {
+    return (
+      <div className="alarm-checking">
+        <RefreshCw size={11} style={{ animation: 'spin 1s linear infinite' }} />
+        <span>Checking Alarm Mode…</span>
+      </div>
+    );
+  }
+
+  const types = [
+    { value: 0, label: 'Short', icon: <Bell size={11} /> },
+    { value: 1, label: 'Long', icon: <Volume2 size={11} /> },
+    { value: 2, label: 'Mute', icon: <VolumeX size={11} /> },
+  ];
+
+  return (
+    <div className="alarm-panel">
+      <div className="control-header-label">
+        <span>Alarm Sound Mode (Event Prompt):</span>
+      </div>
+      <div className="alarm-controls">
+        {types.map(t => (
+          <button
+            key={t.value}
+            className={`alarm-btn ${alarmType === t.value ? 'active' : ''} ${isSettling ? 'settling' : ''}`}
+            onClick={() => handleSetAlarm(t.value)}
+            disabled={isSettling}
+            title={`Set alarm prompt sound to ${t.label}`}
+          >
+            {t.icon}
+            <span>{t.label}</span>
+          </button>
+        ))}
+      </div>
+      {feedback && (
+        <div className={`control-feedback ${feedback.isError ? 'error' : 'success'}`}>
+          {feedback.msg}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Play Ringtone (Audition) Controls Component ──────────────────────────────
+
+interface RingtoneControlsProps {
+  deviceSerial: string;
+  accessToken: string;
+  region: string;
+  ringtoneStatus: 'checking' | 'supported' | 'unsupported';
+  onRingtoneStatusChange: (key: string, status: 'supported' | 'unsupported') => void;
+}
+
+const RingtoneControls: React.FC<RingtoneControlsProps> = ({
+  deviceSerial, accessToken, region, ringtoneStatus, onRingtoneStatusChange,
+}) => {
+  const [activeVoice, setActiveVoice] = useState<number | null>(null);
+  const [isSettling, setIsSettling] = useState(false);
+  const [feedback, setFeedback] = useState<{ msg: string; isError?: boolean } | null>(null);
+
+  const handlePlayRingtone = async (voiceIndex: number) => {
+    if (isSettling) return;
+    setIsSettling(true);
+    setActiveVoice(voiceIndex);
+    setFeedback(null);
+    try {
+      console.log(`[Play Ringtone] Triggering voiceIndex=${voiceIndex} on ${deviceSerial}...`);
+      const resp = await fetch(`${region}/api/v3/device/audition?voiceIndex=${voiceIndex}&volume=80`, {
+        method: 'POST',
+        headers: { accessToken, deviceSerial },
+      });
+      const data = await resp.json();
+      console.log('[Play Ringtone Response]', data);
+      const code = data?.body?.meta?.code ?? data?.meta?.code ?? data?.code;
+      const msg = data?.body?.meta?.message ?? data?.meta?.message ?? data?.msg ?? 'Success';
+
+      if (code === 200 || code === '200') {
+        if (ringtoneStatus !== 'supported') onRingtoneStatusChange(deviceSerial, 'supported');
+        if (voiceIndex === 202) {
+          setActiveVoice(null);
+          setFeedback({ msg: '✓ Tone stopped' });
+        } else {
+          setFeedback({ msg: '✓ Ringing on device!' });
+          setTimeout(() => setActiveVoice(null), 3000);
+        }
+        setTimeout(() => setFeedback(null), 3000);
+      } else if (code === 60020 || code === '60020') {
+        onRingtoneStatusChange(deviceSerial, 'unsupported');
+        setActiveVoice(null);
+        setFeedback({ msg: 'Not supported on this device', isError: true });
+      } else {
+        setActiveVoice(null);
+        setFeedback({ msg: `Error ${code}: ${msg}`, isError: true });
+        setTimeout(() => setFeedback(null), 4000);
+      }
+    } catch (e: any) {
+      console.error('[Play Ringtone Error]', e);
+      setActiveVoice(null);
+      setFeedback({ msg: e.message || 'Network error', isError: true });
+      setTimeout(() => setFeedback(null), 4000);
+    }
+    setIsSettling(false);
+  };
+
+  if (ringtoneStatus === 'unsupported') {
+    return (
+      <div className="ringtone-unavailable">
+        <Music size={11} />
+        <span>Instant Siren / Ringtone Unavailable</span>
+      </div>
+    );
+  }
+
+  if (ringtoneStatus === 'checking') {
+    return (
+      <div className="ringtone-checking">
+        <RefreshCw size={11} style={{ animation: 'spin 1s linear infinite' }} />
+        <span>Checking Instant Siren…</span>
+      </div>
+    );
+  }
+
+  const ringtones = [
+    { value: 200, label: 'Alert Beep', icon: <Volume1 size={11} /> },
+    { value: 201, label: 'Alarm Siren', icon: <Radio size={11} /> },
+    { value: 202, label: 'Stop Tone', icon: <VolumeX size={11} /> },
+  ];
+
+  return (
+    <div className="ringtone-panel">
+      <div className="control-header-label">
+        <span>Instant Sound Trigger (Audition):</span>
+      </div>
+      <div className="ringtone-controls">
+        {ringtones.map(r => (
+          <button
+            key={r.value}
+            className={`ringtone-btn ${activeVoice === r.value ? 'active' : ''} ${isSettling ? 'settling' : ''}`}
+            onClick={() => handlePlayRingtone(r.value)}
+            disabled={isSettling}
+            title={r.label}
+          >
+            {r.icon}
+            <span>{r.label}</span>
+          </button>
+        ))}
+      </div>
+      {feedback && (
+        <div className={`control-feedback ${feedback.isError ? 'error' : 'success'}`}>
+          {feedback.msg}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── CameraPlayer Component ────────────────────────────────────────────────────
 
 interface CameraPlayerProps {
@@ -336,11 +675,21 @@ interface CameraPlayerProps {
   index: number;
   onStatusChange: (deviceSerial: string, channelNo: number, status: number) => void;
   onStreamSettled: () => void;
+  ptzStatus: 'checking' | 'supported' | 'unsupported';
+  onPtzStatusChange: (key: string, status: 'supported' | 'unsupported') => void;
+  alarmStatus: 'checking' | 'supported' | 'unsupported';
+  alarmType: number;
+  onAlarmStatusChange: (key: string, status: 'supported' | 'unsupported') => void;
+  onAlarmTypeChange: (key: string, type: number) => void;
+  ringtoneStatus: 'checking' | 'supported' | 'unsupported';
+  onRingtoneStatusChange: (key: string, status: 'supported' | 'unsupported') => void;
 }
 
 const CameraPlayer: React.FC<CameraPlayerProps> = ({
   device, accessToken, region, mode, recType, playbackTime, playbackEndTime,
-  isActive, index, onStatusChange, onStreamSettled,
+  isActive, index, onStatusChange, onStreamSettled, ptzStatus, onPtzStatusChange,
+  alarmStatus, alarmType, onAlarmStatusChange, onAlarmTypeChange,
+  ringtoneStatus, onRingtoneStatusChange,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<EZUIKitPlayer | null>(null);
@@ -510,6 +859,30 @@ const CameraPlayer: React.FC<CameraPlayerProps> = ({
           </div>
         )}
       </div>
+      <PtzControls
+        deviceSerial={device.deviceSerial}
+        channelNo={device.channelNo}
+        accessToken={accessToken}
+        region={region}
+        ptzStatus={ptzStatus}
+        onPtzStatusChange={onPtzStatusChange}
+      />
+      <AlarmSoundControls
+        deviceSerial={device.deviceSerial}
+        accessToken={accessToken}
+        region={region}
+        alarmStatus={alarmStatus}
+        alarmType={alarmType}
+        onAlarmStatusChange={onAlarmStatusChange}
+        onAlarmTypeChange={onAlarmTypeChange}
+      />
+      <RingtoneControls
+        deviceSerial={device.deviceSerial}
+        accessToken={accessToken}
+        region={region}
+        ringtoneStatus={ringtoneStatus}
+        onRingtoneStatusChange={onRingtoneStatusChange}
+      />
       <div className="camera-footer">
         <span className="camera-meta">CH: {device.channelNo}</span>
         <span className="camera-meta">{device.deviceSerial}</span>
@@ -550,6 +923,10 @@ const App: React.FC = () => {
   const [selectedRecDevice, setSelectedRecDevice] = useState<string>('');
   const [isSingleRecActive, setIsSingleRecActive] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [ptzSupport, setPtzSupport] = useState<Record<string, 'checking' | 'supported' | 'unsupported'>>({});
+  const [alarmSupport, setAlarmSupport] = useState<Record<string, 'checking' | 'supported' | 'unsupported'>>({});
+  const [alarmTypes, setAlarmTypes] = useState<Record<string, number>>({});
+  const [ringtoneSupport, setRingtoneSupport] = useState<Record<string, 'checking' | 'supported' | 'unsupported'>>({});
 
   // Loading progress tracking
   const [streamTotal, setStreamTotal] = useState(0);
@@ -615,10 +992,30 @@ const App: React.FC = () => {
     setError(null);
     setSelectedRecDevice('');
     setIsSingleRecActive(false);
+    setPtzSupport({});
+    setAlarmSupport({});
+    setAlarmTypes({});
+    setRingtoneSupport({});
   };
 
   const handleStreamSettled = useCallback(() => {
     setStreamSettled(prev => prev + 1);
+  }, []);
+
+  const handlePtzStatusChange = useCallback((key: string, status: 'supported' | 'unsupported') => {
+    setPtzSupport(prev => ({ ...prev, [key]: status }));
+  }, []);
+
+  const handleAlarmStatusChange = useCallback((key: string, status: 'supported' | 'unsupported') => {
+    setAlarmSupport(prev => ({ ...prev, [key]: status }));
+  }, []);
+
+  const handleAlarmTypeChange = useCallback((key: string, type: number) => {
+    setAlarmTypes(prev => ({ ...prev, [key]: type }));
+  }, []);
+
+  const handleRingtoneStatusChange = useCallback((key: string, status: 'supported' | 'unsupported') => {
+    setRingtoneSupport(prev => ({ ...prev, [key]: status }));
   }, []);
 
   const updateDeviceStatus = (deviceSerial: string, channelNo: number, status: number) => {
@@ -658,6 +1055,108 @@ const App: React.FC = () => {
         setStreamTotal(onlineDevices);
         setStreamSettled(0);
         setIsAllActive(true);
+
+        // Probe PTZ support for each device using capacity API (non-intrusive, no motor movement)
+        const ptzInitial: Record<string, 'checking' | 'supported' | 'unsupported'> = {};
+        fetchedDevices.forEach((d: Device) => {
+          ptzInitial[`${d.deviceSerial}-${d.channelNo}`] = d.status === 1 ? 'checking' : 'unsupported';
+        });
+        setPtzSupport(ptzInitial);
+
+        const onlineList = fetchedDevices.filter((d: Device) => d.status === 1);
+        (async () => {
+          for (const dev of onlineList) {
+            const k = `${dev.deviceSerial}-${dev.channelNo}`;
+            try {
+              const r = await fetch(`${region}/api/lapp/device/capacity`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `accessToken=${accessToken}&deviceSerial=${dev.deviceSerial}`,
+              });
+              const d = await r.json();
+              if (d.code === '200' && d.data) {
+                // Check if device reports PTZ support in capacity set
+                const hasPtz = d.data.support_ptz === '1' || d.data.support_ptz === 1 || 
+                               d.data.support_cloud_ptz === '1' || d.data.support_cloud_ptz === 1 ||
+                               d.data.support_ptz_top === '1' || d.data.support_ptz_top === 1;
+                // If capacity explicitly returns 0 for ptz, mark unsupported; otherwise default to supported
+                if (d.data.support_ptz === '0' || d.data.support_ptz === 0) {
+                  setPtzSupport(prev => ({ ...prev, [k]: 'unsupported' }));
+                } else if (hasPtz) {
+                  setPtzSupport(prev => ({ ...prev, [k]: 'supported' }));
+                } else {
+                  setPtzSupport(prev => ({ ...prev, [k]: 'supported' }));
+                }
+              } else {
+                setPtzSupport(prev => ({ ...prev, [k]: 'supported' }));
+              }
+            } catch (_e) {
+              setPtzSupport(prev => ({ ...prev, [k]: 'supported' }));
+            }
+            await new Promise(resolve => setTimeout(resolve, 150));
+          }
+        })();
+
+        // Probe alarm sound support for each device
+        const alarmInitial: Record<string, 'checking' | 'supported' | 'unsupported'> = {};
+        fetchedDevices.forEach((d: Device) => {
+          alarmInitial[d.deviceSerial] = d.status === 1 ? 'checking' : 'unsupported';
+        });
+        setAlarmSupport(alarmInitial);
+
+        (async () => {
+          for (const dev of onlineList) {
+            try {
+              const r = await fetch(`${region}/api/v3/device/alarmSound/enabled/get`, {
+                method: 'POST',
+                headers: { accessToken, deviceSerial: dev.deviceSerial },
+              });
+              const d = await r.json();
+              const code = d?.body?.meta?.code ?? d?.meta?.code ?? d?.code;
+              if (code === 200 || code === '200') {
+                setAlarmSupport(prev => ({ ...prev, [dev.deviceSerial]: 'supported' }));
+                // Try to extract current alarm type from response
+                const currentType = d?.body?.type ?? d?.body?.data?.type;
+                if (currentType !== undefined) {
+                  setAlarmTypes(prev => ({ ...prev, [dev.deviceSerial]: Number(currentType) }));
+                }
+              } else {
+                setAlarmSupport(prev => ({ ...prev, [dev.deviceSerial]: 'unsupported' }));
+              }
+            } catch (_e) {
+              setAlarmSupport(prev => ({ ...prev, [dev.deviceSerial]: 'unsupported' }));
+            }
+            await new Promise(resolve => setTimeout(resolve, 300));
+          }
+        })();
+
+        // Probe ringtone audition support for each device
+        const ringtoneInitial: Record<string, 'checking' | 'supported' | 'unsupported'> = {};
+        fetchedDevices.forEach((d: Device) => {
+          ringtoneInitial[d.deviceSerial] = d.status === 1 ? 'checking' : 'unsupported';
+        });
+        setRingtoneSupport(ringtoneInitial);
+
+        (async () => {
+          for (const dev of onlineList) {
+            try {
+              const r = await fetch(`${region}/api/v3/device/audition?voiceIndex=202`, {
+                method: 'POST',
+                headers: { accessToken, deviceSerial: dev.deviceSerial },
+              });
+              const d = await r.json();
+              const code = d?.body?.meta?.code ?? d?.meta?.code ?? d?.code;
+              if (code === 200 || code === '200') {
+                setRingtoneSupport(prev => ({ ...prev, [dev.deviceSerial]: 'supported' }));
+              } else {
+                setRingtoneSupport(prev => ({ ...prev, [dev.deviceSerial]: 'unsupported' }));
+              }
+            } catch (_e) {
+              setRingtoneSupport(prev => ({ ...prev, [dev.deviceSerial]: 'unsupported' }));
+            }
+            await new Promise(resolve => setTimeout(resolve, 300));
+          }
+        })();
       } else if (data.code === '10002' || data.code === '20002') {
         setError('Session expired. Please log in again.');
         handleLogout();
@@ -1009,6 +1508,14 @@ const App: React.FC = () => {
                     isActive={mode === 'live' ? isAllActive : isSingleRecActive}
                     onStatusChange={updateDeviceStatus}
                     onStreamSettled={handleStreamSettled}
+                    ptzStatus={ptzSupport[`${device.deviceSerial}-${device.channelNo}`] ?? 'checking'}
+                    onPtzStatusChange={handlePtzStatusChange}
+                    alarmStatus={alarmSupport[device.deviceSerial] ?? 'checking'}
+                    alarmType={alarmTypes[device.deviceSerial] ?? 2}
+                    onAlarmStatusChange={handleAlarmStatusChange}
+                    onAlarmTypeChange={handleAlarmTypeChange}
+                    ringtoneStatus={ringtoneSupport[device.deviceSerial] ?? 'checking'}
+                    onRingtoneStatusChange={handleRingtoneStatusChange}
                   />
                 ))}
             </div>

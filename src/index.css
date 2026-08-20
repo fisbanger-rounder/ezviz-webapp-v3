@@ -757,3 +757,351 @@ main.sidebar-hidden {
   background: rgba(239, 68, 68, 0.1);
   border-color: rgba(239, 68, 68, 0.5);
 }
+
+/* ── PTZ Controls ────────────────────────────────────────────────────────── */
+
+.ptz-panel {
+  padding: 0.5rem 0.625rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-top: 1px solid var(--border);
+}
+
+.ptz-unavailable {
+  padding: 0.45rem 0.75rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  font-size: 0.68rem;
+  color: #475569;
+  font-weight: 500;
+}
+
+.ptz-checking {
+  padding: 0.45rem 0.75rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.ptz-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.ptz-dpad {
+  display: grid;
+  grid-template-columns: repeat(3, 24px);
+  grid-template-rows: repeat(3, 24px);
+  gap: 2px;
+}
+
+.ptz-dpad-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.18);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.12s ease;
+  padding: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.ptz-dpad-btn:hover {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.35);
+  color: var(--text-main);
+}
+
+.ptz-dpad-btn.active,
+.ptz-dpad-btn:active {
+  background: rgba(99, 102, 241, 0.35);
+  border-color: rgba(99, 102, 241, 0.5);
+  color: #c7d2fe;
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.25);
+  transform: scale(0.92);
+}
+
+.ptz-up    { grid-column: 2; grid-row: 1; border-radius: 6px 6px 2px 2px; }
+.ptz-left  { grid-column: 1; grid-row: 2; border-radius: 6px 2px 2px 6px; }
+.ptz-right { grid-column: 3; grid-row: 2; border-radius: 2px 6px 6px 2px; }
+.ptz-down  { grid-column: 2; grid-row: 3; border-radius: 2px 2px 6px 6px; }
+
+.ptz-dpad-center {
+  grid-column: 2;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(99, 102, 241, 0.25);
+  background: rgba(99, 102, 241, 0.04);
+  border-radius: 2px;
+}
+
+.ptz-side-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.ptz-zoom {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.ptz-zoom .ptz-dpad-btn {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.ptz-zoom-label {
+  font-size: 0.58rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  min-width: 28px;
+  text-align: center;
+}
+
+.ptz-speed {
+  display: flex;
+  gap: 2px;
+  width: 100%;
+}
+
+.ptz-speed-btn {
+  flex: 1;
+  padding: 0.15rem 0.3rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.56rem;
+  font-weight: 700;
+  transition: all 0.12s ease;
+  text-align: center;
+}
+
+.ptz-speed-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-main);
+}
+
+.ptz-speed-btn.active {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.35);
+  color: #818cf8;
+}
+
+/* ── Alarm Sound Controls ────────────────────────────────────────────────── */
+
+.alarm-panel {
+  padding: 0.4rem 0.625rem;
+  background: rgba(0, 0, 0, 0.15);
+  border-top: 1px solid var(--border);
+}
+
+.alarm-unavailable {
+  padding: 0.4rem 0.75rem;
+  background: rgba(0, 0, 0, 0.15);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  font-size: 0.68rem;
+  color: #475569;
+  font-weight: 500;
+}
+
+.alarm-checking {
+  padding: 0.4rem 0.75rem;
+  background: rgba(0, 0, 0, 0.15);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.alarm-controls {
+  display: flex;
+  gap: 3px;
+  justify-content: center;
+}
+
+.alarm-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.4rem;
+  background: rgba(245, 158, 11, 0.06);
+  border: 1px solid rgba(245, 158, 11, 0.15);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.6rem;
+  font-weight: 600;
+  transition: all 0.15s ease;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.alarm-btn:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.3);
+  color: var(--text-main);
+}
+
+.alarm-btn.active {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: rgba(245, 158, 11, 0.45);
+  color: #fbbf24;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.15);
+}
+
+.alarm-btn.settling {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.alarm-btn:disabled {
+  cursor: not-allowed;
+}
+
+/* ── Play Ringtone (Audition) Controls ──────────────────────────────────── */
+
+.ringtone-panel {
+  padding: 0.4rem 0.625rem;
+  background: rgba(0, 0, 0, 0.15);
+  border-top: 1px solid var(--border);
+}
+
+.ringtone-unavailable {
+  padding: 0.4rem 0.75rem;
+  background: rgba(0, 0, 0, 0.15);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  font-size: 0.68rem;
+  color: #475569;
+  font-weight: 500;
+}
+
+.ringtone-checking {
+  padding: 0.4rem 0.75rem;
+  background: rgba(0, 0, 0, 0.15);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.ringtone-controls {
+  display: flex;
+  gap: 3px;
+  justify-content: center;
+}
+
+.ringtone-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.4rem;
+  background: rgba(6, 182, 212, 0.06);
+  border: 1px solid rgba(6, 182, 212, 0.15);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.6rem;
+  font-weight: 600;
+  transition: all 0.15s ease;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.ringtone-btn:hover:not(:disabled) {
+  background: rgba(6, 182, 212, 0.15);
+  border-color: rgba(6, 182, 212, 0.3);
+  color: var(--text-main);
+}
+
+.ringtone-btn.active {
+  background: rgba(6, 182, 212, 0.2);
+  border-color: rgba(6, 182, 212, 0.45);
+  color: #22d3ee;
+  box-shadow: 0 0 8px rgba(6, 182, 212, 0.2);
+}
+
+.ringtone-btn.settling {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.ringtone-btn:disabled {
+  cursor: not-allowed;
+}
+
+.control-header-label {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.control-feedback {
+  margin-top: 0.3rem;
+  font-size: 0.65rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  text-align: center;
+  font-weight: 500;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.control-feedback.success {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.control-feedback.error {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
