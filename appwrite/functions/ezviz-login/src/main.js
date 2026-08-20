@@ -14,6 +14,12 @@
  * ── Appwrite Function Variables required ──────────────────────────────────
  *   EZVIZ_APP_KEY          → your EZVIZ developer AppKey
  *   EZVIZ_APP_SECRET       → your EZVIZ developer AppSecret
+ *
+ *   Multi-account (preferred):
+ *   EZVIZ_ADMIN_USERS      → JSON array of allowed accounts, e.g.:
+ *                            [{"username":"a@x.com","password":"p1"},{"username":"b@x.com","password":"p2"}]
+ *
+ *   Single-account fallback (legacy — used only if EZVIZ_ADMIN_USERS is not set):
  *   EZVIZ_ADMIN_USERNAME   → the username to accept on the login form
  *   EZVIZ_ADMIN_PASSWORD   → the password to accept on the login form
  *
@@ -96,10 +102,11 @@ export default async ({ req, res, log, error }) => {
   }
 
   // ── Read server-side secrets from Appwrite Function Variables ─────────
-  const appKey        = process.env.EZVIZ_APP_KEY;
-  const appSecret     = process.env.EZVIZ_APP_SECRET;
-  const adminUsername = process.env.EZVIZ_ADMIN_USERNAME;
-  const adminPassword = process.env.EZVIZ_ADMIN_PASSWORD;
+  const appKey           = process.env.EZVIZ_APP_KEY;
+  const appSecret        = process.env.EZVIZ_APP_SECRET;
+  const adminUsersRaw    = process.env.EZVIZ_ADMIN_USERS;    // preferred: JSON array
+  const adminUsername    = process.env.EZVIZ_ADMIN_USERNAME; // legacy single-account
+  const adminPassword    = process.env.EZVIZ_ADMIN_PASSWORD; // legacy single-account
 
   if (!appKey || !appSecret) {
     error('EZVIZ_APP_KEY or EZVIZ_APP_SECRET is not set.');
@@ -127,9 +134,37 @@ export default async ({ req, res, log, error }) => {
   }
 
   // ── Verify login credentials ──────────────────────────────────────────
-  // If EZVIZ_ADMIN_USERNAME / EZVIZ_ADMIN_PASSWORD are set in Appwrite
-  // Variables, enforce them. Otherwise skip the check (open access).
-  if (adminUsername && adminPassword) {
+  // Priority 1: EZVIZ_ADMIN_USERS — JSON array of { username, password } objects.
+  //   Allows multiple accounts. Example value:
+  //   [{"username":"a@x.com","password":"p1"},{"username":"b@x.com","password":"p2"}]
+  // Priority 2 (fallback): EZVIZ_ADMIN_USERNAME + EZVIZ_ADMIN_PASSWORD (legacy single-account).
+  // If neither is set, access is open (no credential check).
+
+  if (adminUsersRaw) {
+    // ── Multi-account mode ──────────────────────────────────────────────
+    let adminUsers;
+    try {
+      adminUsers = JSON.parse(adminUsersRaw);
+      if (!Array.isArray(adminUsers)) throw new Error('EZVIZ_ADMIN_USERS must be a JSON array.');
+    } catch (parseErr) {
+      error(`Failed to parse EZVIZ_ADMIN_USERS: ${parseErr.message}`);
+      return res.json({ error: 'Server misconfiguration: EZVIZ_ADMIN_USERS is not valid JSON.' }, 500);
+    }
+
+    const matched = adminUsers.some(
+      (entry) =>
+        typeof entry.username === 'string' &&
+        typeof entry.password === 'string' &&
+        account.trim().toLowerCase() === entry.username.trim().toLowerCase() &&
+        password === entry.password
+    );
+
+    if (!matched) {
+      log(`Failed login attempt for account: ${account}`);
+      return res.json({ error: 'Invalid username or password.' }, 401);
+    }
+  } else if (adminUsername && adminPassword) {
+    // ── Single-account fallback (legacy) ───────────────────────────────
     const usernameOk = account.trim().toLowerCase() === adminUsername.trim().toLowerCase();
     const passwordOk = password === adminPassword;
     if (!usernameOk || !passwordOk) {
