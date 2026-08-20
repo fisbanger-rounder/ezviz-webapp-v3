@@ -488,9 +488,9 @@ const AlarmSoundControls: React.FC<AlarmSoundControlsProps> = ({
         setFeedback({ msg: `Error ${code}: ${msg}`, isError: true });
         setTimeout(() => setFeedback(null), 4000);
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('[Alarm Sound Error]', e);
-      setFeedback({ msg: e.message || 'Network error', isError: true });
+      setFeedback({ msg: (e as Error).message || 'Network error', isError: true });
       setTimeout(() => setFeedback(null), 4000);
     }
     setIsSettling(false);
@@ -600,10 +600,10 @@ const RingtoneControls: React.FC<RingtoneControlsProps> = ({
         setFeedback({ msg: `Error ${code}: ${msg}`, isError: true });
         setTimeout(() => setFeedback(null), 4000);
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('[Play Ringtone Error]', e);
       setActiveVoice(null);
-      setFeedback({ msg: e.message || 'Network error', isError: true });
+      setFeedback({ msg: (e as Error).message || 'Network error', isError: true });
       setTimeout(() => setFeedback(null), 4000);
     }
     setIsSettling(false);
@@ -963,7 +963,6 @@ const App: React.FC = () => {
         }
       })();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleLoginSuccess = (token: string, resolvedRegion: string, creds: LoginCredentials) => {
